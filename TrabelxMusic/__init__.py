@@ -1,23 +1,26 @@
 # Authored By Dev © 2025
-from TrabelxMusic.core.bot import MusicBotClient
-from TrabelxMusic.core.dir import StorageManager
-from TrabelxMusic.core.userbot import Userbot
-from TrabelxMusic.misc import dbb, heroku
-
 from .logging import LOGGER
-from TrabelxMusic.utils.premium_emoji import install_message_emoji_hooks
+
+# Create the main bot object as early as possible so modules importing
+# "from TrabelxMusic import app" never see a partially initialized package.
+from TrabelxMusic.core.bot import MusicBotClient
+app = MusicBotClient()
+
+from TrabelxMusic.core.dir import StorageManager
+from TrabelxMusic.misc import dbb, heroku
 
 StorageManager()
 dbb()
 heroku()
 
+from TrabelxMusic.utils.premium_emoji import install_message_emoji_hooks
 install_message_emoji_hooks()
-app = MusicBotClient()
+
+from TrabelxMusic.core.userbot import Userbot
 userbot = Userbot()
 
-
+# Load platform APIs only after app/userbot exist.
 from .platforms import *
-
 Apple = AppleAPI()
 Carbon = CarbonAPI()
 SoundCloud = SoundAPI()
