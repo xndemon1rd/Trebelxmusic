@@ -35,7 +35,7 @@ python3 -c "from self_healer import run_startup_repair; print(run_startup_repair
 delay=5
 while true; do
     echo "[TrabelxMusic] starting bot..."
-    python3 -m TrabelxMusic 2>&1 | tee -a runtime.log
+    python3 TrabelxMusic/__main__.py 2>&1 | tee -a runtime.log
     status=${PIPESTATUS[0]}
     echo "[TrabelxMusic] bot exited with status ${status}"
 
