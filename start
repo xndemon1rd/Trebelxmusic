@@ -1,0 +1,61 @@
+#!/usr/bin/env bash
+set -u
+
+cd /app
+
+# Start the local BgUtils PO-token provider used by yt-dlp. This keeps
+# per-video PO-token generation inside the same Railway container.
+BGUTIL_DIR="/opt/bgutil-ytdlp-pot-provider/server"
+BGUTIL_PID=""
+if [ -f "$BGUTIL_DIR/src/main.ts" ] && command -v deno >/dev/null 2>&1; then
+    (
+        cd "$BGUTIL_DIR/node_modules" &&
+        deno run --allow-env --allow-net --allow-ffi=. --allow-read=. \
+            ../src/main.ts --host 127.0.0.1 --port "${BGUTIL_POT_PORT:-4416}"
+    ) > /app/bgutil-provider.log 2>&1 &
+    BGUTIL_PID=$!
+    sleep 2
+    if kill -0 "$BGUTIL_PID" 2>/dev/null; then
+        echo "[TrabelxMusic] BgUtils PO-token provider started on 127.0.0.1:${BGUTIL_POT_PORT:-4416}"
+    else
+        echo "[TrabelxMusic] WARNING: BgUtils PO-token provider failed to start; see /app/bgutil-provider.log"
+    fi
+fi
+
+cleanup_bgutil() {
+    if [ -n "${BGUTIL_PID:-}" ]; then
+        kill "$BGUTIL_PID" 2>/dev/null || true
+    fi
+}
+trap cleanup_bgutil EXIT
+
+# Deterministic validation/repair before every boot.
+python3 -c "from self_healer import run_startup_repair; print(run_startup_repair())" || true
+
+delay=5
+while true; do
+    echo "[TrabelxMusic] starting bot..."
+    python3 -m TrabelxMusic 2>&1 | tee -a runtime.log
+    status=${PIPESTATUS[0]}
+    echo "[TrabelxMusic] bot exited with status ${status}"
+
+    # Process-level detector: send unexpected crashes to the AI healer.
+    if [ "${status}" -ne 0 ]; then
+        python3 crash_healer.py || true
+    fi
+
+    # A validated AI repair requests a clean restart so newly patched modules load.
+    if [ -f .self_heal_restart ]; then
+        rm -f .self_heal_restart
+        echo "[TrabelxMusic] validated self-heal requested restart"
+        delay=5
+        continue
+    fi
+
+    echo "[TrabelxMusic] restarting in ${delay}s..."
+    sleep "${delay}"
+    if [ "${delay}" -lt 60 ]; then
+        delay=$((delay * 2))
+        [ "${delay}" -gt 60 ] && delay=60
+    fi
+done

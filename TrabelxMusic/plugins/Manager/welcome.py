@@ -1,0 +1,186 @@
+# Authored By Dev © 2025
+import os
+import asyncio
+import html
+from functools import lru_cache
+from PIL import Image, ImageDraw, ImageFont
+from pyrogram import filters, enums
+from pyrogram.types import Message, ChatMemberUpdated, InlineKeyboardMarkup, InlineKeyboardButton
+from pyrogram.errors import TopicClosed, PeerIdInvalid, ChannelPrivate, SlowmodeWait
+from TrabelxMusic import app
+from TrabelxMusic.mongo.welcomedb import is_on, set_state, bump, cool, auto_on
+from TrabelxMusic.utils.premium_emoji import custom_emoji_entities
+import config
+
+BG_PATH = "TrabelxMusic/assets/Trabel/welcome.png"
+FALLBACK_PIC = "TrabelxMusic/assets/upic.png"
+FONT_PATH = "TrabelxMusic/assets/Trabel/Arimo.ttf"
+
+BTN_VIEW = "๏ ᴠɪᴇᴡ ɴᴇᴡ ᴍᴇᴍʙᴇʀ ๏"
+BTN_ADD = "๏ ᴋɪᴅɴᴀᴘ ᴍᴇ ๏"
+
+CAPTION_TXT = """🕊️ ᴡᴇʟᴄᴏᴍᴇ, {username} 🌿
+
+🤍 ᴡᴇ'ʀᴇ ɢʟᴀᴅ ʏᴏᴜ'ʀᴇ ʜᴇʀᴇ.
+🎶 ᴇɴᴊᴏʏ ᴛʜᴇ ᴍᴜꜱɪᴄ, ᴋᴇᴇᴘ ᴛʜᴇ ᴄʜᴀᴛ ᴘᴇᴀᴄᴇꜰᴜʟ & ʙᴇ ᴋɪɴᴅ.
+
+🌸 ᴍᴀʏ ᴛʜɪꜱ ɢʀᴏᴜᴘ ʙᴇ ᴀ ᴘʟᴀᴄᴇ ғᴏʀ ɢᴏᴏᴅ ᴠɪʙᴇꜱ, ᴍᴜꜱɪᴄ & ғʀɪᴇɴᴅsʜɪᴘ.
+
+🎵 ᴛʏᴘᴇ /play ᴛᴏ sᴛᴀʀᴛ ᴍᴜꜱɪᴄ
+📚 ᴛʏᴘᴇ /help ᴛᴏ sᴇᴇ ᴄᴏᴍᴍᴀɴᴅs
+
+•── ⋅ ⋅ ────── ⋅᯽⋅ ────── ⋅ ⋅ ──•"""
+
+JOIN_THRESHOLD = 20
+TIME_WINDOW = 10
+COOL_MINUTES = 5
+WELCOME_LIMIT = 5
+
+last_messages = {}
+
+@lru_cache(maxsize=1)
+def cached_bg():
+    return Image.open(BG_PATH).convert("RGBA")
+
+@lru_cache(maxsize=2)
+def cached_font(size=65):
+    return ImageFont.truetype(FONT_PATH, size)
+
+def circle(im, size=(835, 839)):
+    im = im.resize(size, Image.LANCZOS).convert("RGBA")
+    mask = Image.new("L", size, 0)
+    ImageDraw.Draw(mask).ellipse((0, 0, *size), fill=255)
+    im.putalpha(mask)
+    return im
+
+def build_pic(av, fn, uid, un):
+    os.makedirs("downloads", exist_ok=True)
+    bg = cached_bg().copy()
+    avatar = circle(Image.open(av))
+    bg.paste(avatar, (1887, 390), avatar)
+    d = ImageDraw.Draw(bg)
+    f = cached_font()
+    d.text((421, 715), fn, fill=(242, 242, 242), font=f)
+    d.text((270, 1005), str(uid), fill=(242, 242, 242), font=f)
+    d.text((570, 1308), un, fill=(242, 242, 242), font=f)
+    path = f"downloads/welcome_{uid}.png"
+    bg.save(path)
+    return path
+
+async def safe_send(func, *args, **kwargs):
+    try:
+        return await func(*args, **kwargs)
+    except Exception:
+        return None
+
+@app.on_message(filters.command("welcome") & filters.group)
+async def toggle(client, m: Message):
+    if len(m.command) != 2:
+        return await m.reply_text("**Usage:**\n⦿/welcome [on|off]\n➤ Trabel Special Welcome.....")
+    user_id = m.from_user.id if m.from_user else (m.sender_chat.id if m.sender_chat else None)
+    if not user_id:
+        return
+    try:
+        u = await client.get_chat_member(m.chat.id, user_id)
+    except Exception:
+        return
+    if u.status not in (enums.ChatMemberStatus.ADMINISTRATOR, enums.ChatMemberStatus.OWNER):
+        return await m.reply_text("**sᴏʀʀʏ ᴏɴʟʏ ᴀᴅᴍɪɴs ᴄᴀɴ ᴄʜᴀɴɢᴇ ᴡᴇʟᴄᴏᴍᴇ ɴᴏᴛɪғɪᴄᴀᴛɪᴏɴ sᴛᴀᴛᴜs!**")
+    flag = m.command[1].lower()
+    if flag not in ("on", "off"):
+        return await m.reply_text("**Usage:**\n⦿/welcome [on|off]\n➤ Trabel Special Welcome.....")
+    cur = await is_on(m.chat.id)
+    if flag == "off" and not cur:
+        return await m.reply_text("**ᴡᴇʟᴄᴏᴍᴇ ɴᴏᴛɪғɪᴄᴀᴛɪᴏɴ ᴀʟʀᴇᴀᴅʏ ᴅɪsᴀʙʟᴇᴅ!**")
+    if flag == "on" and cur:
+        return await m.reply_text("**ᴡᴇʟᴄᴏᴍᴇ ɴᴏᴛɪғɪᴄᴀᴛɪᴏɴ ᴀʟʀᴇᴀᴅʏ ᴇɴᴀʙʟᴇᴅ!**")
+    await set_state(m.chat.id, flag)
+    await m.reply_text(f"**{'ᴇɴᴀʙʟᴇᴅ' if flag == 'on' else 'ᴅɪsᴀʙʟᴇᴅ'} ᴡᴇʟᴄᴏᴍᴇ ɪɴ {m.chat.title}**")
+
+@app.on_chat_member_updated(filters.group, group=-3)
+async def welcome(client, update: ChatMemberUpdated):
+    new = update.new_chat_member
+    old = update.old_chat_member
+    cid = update.chat.id
+
+    if not new or new.status != enums.ChatMemberStatus.MEMBER:
+        return
+    if old and old.status == enums.ChatMemberStatus.MEMBER:
+        return
+
+    if not hasattr(client, "cached_me"):
+        try:
+            client.cached_me = await client.get_me()
+        except Exception:
+            return
+    me = client.cached_me
+
+    try:
+        await client.get_chat_member(cid, me.id)
+    except Exception:
+        return
+
+    if not await is_on(cid):
+        if await auto_on(cid):
+            await safe_send(client.send_message, cid, "**ᴡᴇʟᴄᴏᴍᴇ ᴍᴇssᴀɢᴇs ʀᴇ-ᴇɴᴀʙʟᴇᴅ.**")
+        else:
+            return
+
+    burst = await bump(cid, TIME_WINDOW)
+    if burst >= JOIN_THRESHOLD:
+        minutes = min(60, COOL_MINUTES + max(0, burst - JOIN_THRESHOLD) * 2)
+        await cool(cid, minutes)
+        await safe_send(client.send_message, cid, f"**ᴍᴀssɪᴠᴇ ᴊᴏɪɴ ᴅᴇᴛᴇᴄᴛᴇᴅ (x{burst}). ᴡᴇʟᴄᴏᴍᴇ ᴍᴇssᴀɢᴇs ᴅɪsᴀʙʟᴇᴅ ғᴏʀ {minutes} ᴍɪɴᴜᴛᴇs.**")
+        return
+
+    user = new.user
+    caption = CAPTION_TXT.format(username=(f"@{user.username}" if user.username else (user.first_name or "User")))
+
+    markup = InlineKeyboardMarkup([
+        [InlineKeyboardButton(BTN_VIEW, url=f"tg://openmessage?user_id={user.id}")],
+        [InlineKeyboardButton(BTN_ADD, url=f"https://t.me/{me.username}?startgroup=true")],
+    ])
+
+    # Use the requested peaceful welcome image. If the remote image host is
+    # temporarily unavailable, fall back to the built-in personalized image.
+    sent = await safe_send(
+        client.send_photo,
+        cid,
+        config.GROUP_WELCOME_IMG_URL,
+        caption=caption,
+        caption_entities=custom_emoji_entities(caption),
+        reply_markup=markup,
+    )
+    if not sent:
+        file_id = user.photo.big_file_id if user.photo and hasattr(user.photo, "big_file_id") else None
+        avatar = await safe_send(client.download_media, file_id, file_name=f"downloads/pp_{user.id}.png") if file_id else FALLBACK_PIC
+        if not avatar:
+            avatar = FALLBACK_PIC
+        img = build_pic(avatar, user.first_name, user.id, user.username or "No Username")
+        sent = await safe_send(
+            client.send_photo,
+            cid,
+            img,
+            caption=f"<blockquote>{html.escape(caption)}</blockquote>",
+            parse_mode=enums.ParseMode.HTML,
+            reply_markup=markup,
+        )
+
+    if sent:
+        last_messages.setdefault(cid, []).append(sent)
+        if len(last_messages[cid]) > WELCOME_LIMIT:
+            old_msg = last_messages[cid].pop(0)
+            if old_msg:
+                await safe_send(old_msg.delete)
+
+    async def cleanup(path):
+        if path and os.path.exists(path) and not os.path.abspath(path).startswith(os.path.abspath("TrabelxMusic/assets")):
+            try:
+                os.remove(path)
+            except Exception:
+                pass
+
+    if 'avatar' in locals():
+        asyncio.create_task(cleanup(avatar))
+    if 'img' in locals():
+        asyncio.create_task(cleanup(img))
