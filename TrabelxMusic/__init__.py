@@ -16,8 +16,6 @@ heroku()
 from TrabelxMusic.utils.premium_emoji import install_message_emoji_hooks
 install_message_emoji_hooks()
 
-from TrabelxMusic.core.userbot import Userbot
-userbot = Userbot()
 
 # Load platform APIs only after app/userbot exist.
 from .platforms import *

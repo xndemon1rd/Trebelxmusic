@@ -6,7 +6,9 @@ from pyrogram import idle
 from pytgcalls.exceptions import NoActiveGroupCall
 
 import config
-from TrabelxMusic import LOGGER, app, userbot
+from TrabelxMusic import LOGGER, app
+from TrabelxMusic.core.userbot import Userbot
+userbot = Userbot()
 from TrabelxMusic.core.call import StreamController
 from TrabelxMusic.misc import admin
 from TrabelxMusic.plugins import ALL_MODULES
